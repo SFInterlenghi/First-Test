@@ -53,7 +53,6 @@ if uploaded_file is None:
     st.info("👆 Upload an Excel file to begin.")
     st.stop()
 
-# Read sheet names
 try:
     xl         = pd.ExcelFile(uploaded_file)
     all_sheets = xl.sheet_names
@@ -82,31 +81,29 @@ st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STAGE 2 — COLUMN MAPPING
+# Note: widget keys use "w_" prefix to avoid conflict with session_state keys
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Step 2 — Map your columns")
 st.caption("Tell the app what each column represents. Pressure and Species are optional.")
 
-all_columns  = raw_df.columns.tolist()
-none_option  = "— not applicable —"
-col_options  = [none_option] + all_columns
+all_columns = raw_df.columns.tolist()
+none_option = "— not applicable —"
+col_options = [none_option] + all_columns
 
 c1, c2 = st.columns(2)
 with c1:
-    x_col        = st.selectbox("X axis (e.g. S/CH4 ratio, S/EtOH)", options=all_columns, key="x_col")
-    carbon_col   = st.selectbox("Carbon column (deposition value)",    options=all_columns, key="carbon_col")
+    w_x_col      = st.selectbox("X axis (e.g. S/CH4 ratio, S/EtOH)", options=all_columns,  key="w_x_col")
+    w_carbon_col = st.selectbox("Carbon column (deposition value)",    options=all_columns,  key="w_carbon_col")
 with c2:
-    y_col        = st.selectbox("Y axis (e.g. Temperature)",           options=all_columns, key="y_col")
-    pressure_col = st.selectbox("Pressure column (optional)",          options=col_options,  key="pressure_col")
+    w_y_col        = st.selectbox("Y axis (e.g. Temperature)",        options=all_columns,  key="w_y_col")
+    w_pressure_col = st.selectbox("Pressure column (optional)",       options=col_options,  key="w_pressure_col")
 
-species_cols = st.multiselect(
+w_species_cols = st.multiselect(
     "Species columns (optional — e.g. H2, CO, CO2, CH4, H2O)",
     options=all_columns,
-    key="species_cols",
+    key="w_species_cols",
     help="Select one or more columns representing molar flowrates of gas species.",
 )
-
-has_pressure = pressure_col != none_option
-has_species  = len(species_cols) > 0
 
 apply = st.button("▶ Apply Configuration & Build Dashboard", type="primary")
 
@@ -114,24 +111,25 @@ if not apply and "configured" not in st.session_state:
     st.info("👆 Map your columns above then click **Apply Configuration**.")
     st.stop()
 
+# Save to session state only when button is clicked — using different key names
 if apply:
-    st.session_state.configured   = True
-    st.session_state.x_col        = x_col
-    st.session_state.y_col        = y_col
-    st.session_state.carbon_col   = carbon_col
-    st.session_state.pressure_col = pressure_col
-    st.session_state.species_cols = species_cols
-    st.session_state.has_pressure = has_pressure
-    st.session_state.has_species  = has_species
+    st.session_state.configured    = True
+    st.session_state.cfg_x         = w_x_col
+    st.session_state.cfg_y         = w_y_col
+    st.session_state.cfg_carbon    = w_carbon_col
+    st.session_state.cfg_pressure  = w_pressure_col
+    st.session_state.cfg_species   = w_species_cols
+    st.session_state.cfg_has_pres  = (w_pressure_col != none_option)
+    st.session_state.cfg_has_spec  = (len(w_species_cols) > 0)
 
-# Read confirmed config from session
-x_col        = st.session_state.x_col
-y_col        = st.session_state.y_col
-carbon_col   = st.session_state.carbon_col
-pressure_col = st.session_state.pressure_col
-species_cols = st.session_state.species_cols
-has_pressure = st.session_state.has_pressure
-has_species  = st.session_state.has_species
+# Read confirmed config from session state
+x_col        = st.session_state.cfg_x
+y_col        = st.session_state.cfg_y
+carbon_col   = st.session_state.cfg_carbon
+pressure_col = st.session_state.cfg_pressure
+species_cols = st.session_state.cfg_species
+has_pressure = st.session_state.cfg_has_pres
+has_species  = st.session_state.cfg_has_spec
 
 # Build working dataframe with only mapped columns
 keep_cols = [x_col, y_col, carbon_col]
@@ -152,7 +150,6 @@ st.divider()
 # ══════════════════════════════════════════════════════════════════════════════
 st.subheader("Step 3 — Explore your data")
 
-# Derive available values
 if has_pressure:
     available_pressures = sorted(data[pressure_col].dropna().unique().tolist())
 else:
@@ -171,7 +168,6 @@ with ctrl1:
             options=available_pressures,
             default=available_pressures,
             format_func=lambda p: f"{p:g}",
-            key="sel_pressures",
         )
         if not selected_pressures:
             selected_pressures = available_pressures
@@ -190,10 +186,9 @@ with ctrl3:
 def build_3d_figure(df, pressures, opacity):
     fig        = go.Figure()
     carbon_max = float(df[carbon_col].max()) if not df.empty else 1.0
+    iter_p     = sorted(p for p in pressures if p is not None) if has_pressure else [None]
 
-    iter_pressures = sorted(p for p in pressures if p is not None) if has_pressure else [None]
-
-    for i, pressure in enumerate(iter_pressures):
+    for i, pressure in enumerate(iter_p):
         subset = df[df[pressure_col] == pressure] if has_pressure else df
         if subset.empty:
             continue
@@ -241,10 +236,10 @@ def build_3d_figure(df, pressures, opacity):
 
 
 def build_zero_plane_figure(df, pressures):
-    fig            = go.Figure()
-    iter_pressures = sorted(p for p in pressures if p is not None) if has_pressure else [None]
+    fig   = go.Figure()
+    iter_p = sorted(p for p in pressures if p is not None) if has_pressure else [None]
 
-    for i, pressure in enumerate(iter_pressures):
+    for i, pressure in enumerate(iter_p):
         subset = df[df[pressure_col] == pressure].copy() if has_pressure else df.copy()
         if subset.empty:
             continue
@@ -302,10 +297,10 @@ def build_species_figure(df, pressures, selected_x_val):
         fig.update_layout(title="Species flowrates vs Y axis", template="plotly_white", height=480)
         return fig
 
-    ratio_data     = df[df[x_col] == selected_x_val].copy()
-    iter_pressures = sorted(p for p in pressures if p is not None) if has_pressure else [None]
+    ratio_data = df[df[x_col] == selected_x_val].copy()
+    iter_p     = sorted(p for p in pressures if p is not None) if has_pressure else [None]
 
-    for i, pressure in enumerate(iter_pressures):
+    for i, pressure in enumerate(iter_p):
         subset = (
             ratio_data[ratio_data[pressure_col] == pressure].sort_values(y_col)
             if has_pressure else ratio_data.sort_values(y_col)
@@ -360,7 +355,6 @@ if has_species:
                 options=available_pressures,
                 default=available_pressures,
                 format_func=lambda p: f"{p:g}",
-                key="sel_pressures_sp",
             )
             if not selected_pressures_sp:
                 selected_pressures_sp = available_pressures
@@ -374,7 +368,6 @@ if has_species:
             options=available_x,
             value=default_x,
             format_func=lambda r: f"{r:.2f}",
-            key="x_slider",
         )
 
     st.plotly_chart(
@@ -386,4 +379,4 @@ else:
     st.info("💡 No species columns were mapped — species chart is not available.")
 
 st.divider()
-st.caption("Firjan SENAI ")
+st.caption("Firjan SENAI · Hytron (Neuman-Esser) · USP · Shell")
